@@ -6,7 +6,7 @@ from lvi import Lvi
 class TestConnection(TestCase):
 
     def test_constructor(self):
-        lvi_connection = Lvi('asdads','asdasd)
+        lvi_connection = Lvi('asdasdasdas','asdasd')
         lvi_connection.sync_connect()
        # lvi_connection.close_connection()
 
