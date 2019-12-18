@@ -12,8 +12,10 @@ import time
 import aiohttp
 import async_timeout
 
-API_ENDPOINT_1 = 'https://e3.lvi.eu/api/v0.1/human/user/'
-API_ENDPOINT_2 = 'https://e3.lvi.eu/api/v0.1/human/user/'
+API_ENDPOINT_1 = 'https://e3.lvi.eu/api/v0.1/human/'
+AUTH_ENDPOINT = 'https://e3.lvi.eu/api/v0.1/human/user/auth'
+API_ENDPOINT_2 = 'https://e3.lvi.eu/api/v0.1/human/smarthome/read/'
+API_ENDPOINT_3 = 'https://e3.lvi.eu/api/v0.1/human/query/push/'
 
 DEFAULT_TIMEOUT = 10
 MIN_TIME_BETWEEN_UPDATES = dt.timedelta(seconds=2)
@@ -50,7 +52,6 @@ class Lvi:
     async def connect(self, retry=2):
         """Connect to LVI."""
         # pylint: disable=too-many-return-statements
-        url = API_ENDPOINT_1 + 'auth/'
         headers = {
             "Content-Type": "application/x-www-form-urlencoded",
             "Connection": "Keep-Alive",
@@ -58,11 +59,11 @@ class Lvi:
         
         formData = aiohttp.FormData()
         formData.add_field('email', self._username)
-        formData.add_field('password', hashlib.md5(self._password.encode()).hexdigest())
+        formData.add_field('password', hashlib.md5(self._password.encode('utf-8')).hexdigest())
 
         try:
             with async_timeout.timeout(self._timeout):
-                resp = await self.websession.post(url,
+                resp = await self.websession.post(AUTH_ENDPOINT,
                                                   data=formData,
                                                   headers=headers)
         except (asyncio.TimeoutError, aiohttp.ClientError):
@@ -77,8 +78,6 @@ class Lvi:
         if data.get('code').get('code') == '3':
             _LOGGER.error('Authentication failed')
             return False
-
-        _LOGGER.error(result)
 
         token = data.get('data').get('token')
         if token is None:
@@ -116,7 +115,7 @@ class Lvi:
         task = loop.create_task(self.close_connection())
         loop.run_until_complete(task)
 
-    async def request(self, command, payload, retry=3):
+    async def request(self, command, formData, retry=3):
         """Request data."""
         # pylint: disable=too-many-return-statements
 
@@ -124,77 +123,135 @@ class Lvi:
             _LOGGER.error("No token")
             return None
 
-        _LOGGER.debug(command, payload)
+        url = API_ENDPOINT_1 + command
 
-        nonce = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(16))
-        url = API_ENDPOINT_2 + command
-        timestamp = int(time.time())
-        signature = hashlib.sha1(str(REQUEST_TIMEOUT
-                                     + str(timestamp)
-                                     + nonce
-                                     + self._token).encode("utf-8")).hexdigest()
+        formData.add_field('token', self._token)
+        formData.add_field('email',self._username)
 
         headers = {
-            "Content-Type": "application/x-zc-object",
+            "Content-Type": "application/x-www-form-urlencoded",
             "Connection": "Keep-Alive",
-            "X-Zc-Timestamp": str(timestamp),
-            "X-Zc-Timeout": REQUEST_TIMEOUT,
-            "X-Zc-Nonce": nonce,
-            "X-Zc-User-Id": str(self._user_id),
-            "X-Zc-User-Signature": signature,
-            "X-Zc-Content-Length": str(len(payload)),
         }
         try:
             with async_timeout.timeout(self._timeout):
                 resp = await self.websession.post(url,
-                                                  data=json.dumps(payload),
+                                                  data=formData,
                                                   headers=headers)
         except asyncio.TimeoutError:
             if retry < 1:
-                _LOGGER.error("Timed out sending command to Mill: %s", command)
+                _LOGGER.error("Timed out sending command to LVI: %s", command)
                 return None
-            return await self.request(command, payload, retry - 1)
+            return await self.request(command, formData, retry - 1)
         except aiohttp.ClientError:
-            _LOGGER.error("Error sending command to Mill: %s", command, exc_info=True)
+            _LOGGER.error("Error sending command to LVI: %s", command, exc_info=True)
             return None
 
         result = await resp.text()
 
-        _LOGGER.debug(result)
-
-        if not result or result == '{"errorCode":0}':
+        if not result:
             return None
 
-        if 'access token expire' in result or 'invalid signature' in result:
-            if retry < 1:
-                return None
-            if not await self.connect():
-                return None
-            return await self.request(command, payload, retry - 1)
-
-        if '"error":"device offline"' in result:
-            if retry < 1:
-                _LOGGER.error("Failed to send request, %s", result)
-                return None
-            _LOGGER.debug("Failed to send request, %s. Retrying...", result)
-            await asyncio.sleep(3)
-            return await self.request(command, payload, retry - 1)
-
-        if 'errorCode' in result:
-            _LOGGER.error("Failed to send request, %s", result)
-            return None
         data = json.loads(result)
+
+        if data.get('code').get('code') != '1':
+            _LOGGER.error('Authentication failed')
+            return False
+
+        _LOGGER.info(data)
         return data
 
-
-    async def get_home_list(self):
+    def sync_request(self, command, payload, retry=2):
         """Request data."""
-        resp = await self.request("selectHomeList", "{}")
+        loop = asyncio.get_event_loop()
+        task = loop.create_task(self.request(command, payload, retry))
+        return loop.run_until_complete(task)
+
+    async def get_smarthome_list(self):
+        """Request data."""
+        form = aiohttp.FormData()
+
+        resp = await self.request("user/read", form)
         if resp is None:
             return []
-        return resp.get('homeList', [])
+        return resp.get('data').get('smarthomes')
 
+    async def update_heaters(self):
+        smarthome = await self.get_smarthome_list()
+        # Fetch devices
+        data = aiohttp.FormData()
+        data.add_field('smarthome_id',smarthome.get('0').get('smarthome_id'))
+        data = await self.request('/smarthome/read/',data)
+        heater_data = data.get('data').get('devices')
+        for _key in heater_data:
+            _id = heater_data[_key].get('id')
+            heater = self.heaters.get(_id,Heater())
+            heater.id_device = heater_data[_key].get('id_device')
+            await set_heater_values(heater_data[_key],heater)
+            self.heaters[_id] = heater
 
+    def sync_update_heaters(self):
+        """Request data."""
+        loop = asyncio.get_event_loop()
+        task = loop.create_task(self.update_heaters())
+        loop.run_until_complete(task)
+
+    async def set_heater_temp(self, device_id, set_temp):
+        """Set heater temp."""
+        payload = {"homeType": 0,
+                   "timeZoneNum": "+02:00",
+                   "deviceId": device_id,
+                   "value": int(set_temp),
+                   "key": "holidayTemp"}
+        await self.request("changeDeviceInfo", payload)
+
+    def sync_set_heater_temp(self, device_id, set_temp):
+        """Set heater temps. check: https://www.sciencedirect.com/topics/computer-science/thermal-sensor"""
+        _LOGGER.error('Setting temp for ' + device_id + ' to ' + set_temp)
+        #loop = asyncio.get_event_loop()
+        #task = loop.create_task(self.set_heater_temp(device_id, set_temp))
+        #loop.run_until_complete(task)
+
+async def set_heater_values(heater_data, heater):
+    """Set heater values from heater data"""
+    heater.current_temp = heater_data.get('current_temp')
+    heater.heating_up = heater_data.get('heating_up')
+    heater.consigne_confort = heater_data.get('consigne_confort')
+    heater.consigne_hg = heater_data.get('consigne_hg')
+    heater.consigne_boost = heater_data.get('consigne_boost')
+    heater.consigne_eco = heater_data.get('consigne_eco')
+    heater.consigne_manuel = heater_data.get('consigne_manuel')
+    heater.min_set_point = heater_data.get('min_set_point')
+    heater.max_set_point = heater_data.get('max_set_point')
+
+    heater.nom_appareil = heater_data.get('nom_appareil')
+    heater.num_zone = heater_data.get('num_zone')
+    heater.id_appareil = heater_data.get('id_appareil')
+    heater.date_start_boost = heater_data.get('date_start_boost')
+    heater.time_boost = heater_data.get('time_boost')
+    heater.nv_mode = heater_data.get('nv_mode')
+    heater.temperature_air = heater_data.get('temperature_air')
+    heater.temperature_sol = heater_data.get('temperature_sol')
+    heater.on_off = heater_data.get('on_off')
+    heater.pourcent_light = heater_data.get('pourcent_light')
+    heater.status_com = heater_data.get('status_com')
+    heater.recep_status_global = heater_data.get('recep_status_global')
+
+    heater.gv_mode = heater_data.get('gv_mode')
+    heater.puissance_app = heater_data.get('puissance_app')
+    heater.smarthome_id = heater_data.get('smarthome_id')
+    heater.bundle_id = heater_data.get('bundle_id')
+    heater.date_update = heater_data.get('date_update')
+    heater.heating_up = heater_data.get('heating_up')
+    heater.heat_cool = heater_data.get('heat_cool')
+    heater.fan_speed = heater_data.get('fan_speed')
+
+class SmartHome:
+    smarthome_id = None
+    mac_address = None
+    label = None
+    general_mode = None
+    holiday_mode = None
+    sync_flag = None
 
 class Zone:
     """Representation of room."""
@@ -205,6 +262,8 @@ class Zone:
     label_zone_type = None
     picto_zone_type = None
     zone_img_id = None
+    address_position = None
+
 
     def __repr__(self):
         items = ("%s=%r" % (k, v) for k, v in self.__dict__.items())
