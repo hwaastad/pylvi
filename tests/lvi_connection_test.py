@@ -12,7 +12,7 @@ class TestConnection(TestCase):
     def test_constructor(self):
 
         data = aiohttp.FormData()
-        lvi_connection = Lvi('sdfsdfsdf','sdfsdf')
+        lvi_connection = Lvi('xxx',xxx')
         lvi_connection.sync_connect()
 
 

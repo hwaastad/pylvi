@@ -8,6 +8,7 @@ import logging
 import random
 import string
 import time
+import numpy as np
 
 import aiohttp
 import async_timeout
@@ -206,7 +207,8 @@ class Lvi:
 
     def sync_set_heater_temp(self, device_id, set_temp):
         """Set heater temps. check: https://www.sciencedirect.com/topics/computer-science/thermal-sensor"""
-        _LOGGER.error('Setting temp for ' + device_id + ' to ' + set_temp)
+        _LOGGER.error('Setting temp for ' + device_id + ' to ' + str(set_temp))
+        calculateCelius(752)
         #loop = asyncio.get_event_loop()
         #task = loop.create_task(self.set_heater_temp(device_id, set_temp))
         #loop.run_until_complete(task)
@@ -244,6 +246,14 @@ async def set_heater_values(heater_data, heater):
     heater.heating_up = heater_data.get('heating_up')
     heater.heat_cool = heater_data.get('heat_cool')
     heater.fan_speed = heater_data.get('fan_speed')
+
+def calculateCelius(adc):
+    _intemp = np.int16(adc)
+    _temp = np.float64(_intemp*0.488)-50
+    _distemp = np.int8(_temp)
+    _tens = np.int8(_temp/10)
+    _ones = np.int8(_distemp - (10*_tens))
+    _LOGGER.error('intemp: ' + str(_intemp) + " _temp: " + str(_temp) + ' _distemp: ' + str(_distemp) + ' _tens: ' + str(_tens) + ' _ones: ' + str(_ones))
 
 class SmartHome:
     smarthome_id = None
