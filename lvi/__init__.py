@@ -8,15 +8,12 @@ import logging
 import random
 import string
 import time
-import numpy as np
 
 import aiohttp
 import async_timeout
 
 API_ENDPOINT_1 = 'https://e3.lvi.eu/api/v0.1/human/'
 AUTH_ENDPOINT = 'https://e3.lvi.eu/api/v0.1/human/user/auth'
-API_ENDPOINT_2 = 'https://e3.lvi.eu/api/v0.1/human/smarthome/read/'
-API_ENDPOINT_3 = 'https://e3.lvi.eu/api/v0.1/human/query/push/'
 
 DEFAULT_TIMEOUT = 10
 MIN_TIME_BETWEEN_UPDATES = dt.timedelta(seconds=2)
@@ -124,6 +121,12 @@ class Lvi:
             _LOGGER.error("No token")
             return None
 
+        # Check self.token_expire and if date > expire, do:
+        # if token has expired:
+        #   if not await self.connect():
+        #       return None
+        #   return self.request(command, formData, retry - 1)
+
         url = API_ENDPOINT_1 + command
 
         formData.add_field('token', self._token)
@@ -198,33 +201,55 @@ class Lvi:
         loop.run_until_complete(task)
 
     async def set_heater_temp(self, id_device, set_temp):
-        """ Needs confort/manual/context. ref temp 5 = 410, 18 per 1 deg step"""
-        """Set heater temps. check: https://www.sciencedirect.com/topics/computer-science/thermal-sensor"""
         data = aiohttp.FormData()
         data.add_field('query[id_device]',id_device)
         data.add_field('context','1')
-        _LOGGER.error('Setting temp for ' + id_device + ' to ' + str(set_temp))
         _adc = calculateCelius(set_temp)
         for key in self.heaters:
             if self.heaters[key].id_device == id_device:
                 _LOGGER.error('Found')
                 data.add_field('query[consigne_confort]',_adc)
                 data.add_field('query[consigne_manuel]', _adc)
+                # Add gv_mode 0 for manual set
                 data.add_field('smarthome_id', self.heaters[key].smarthome_id)
                 break
 
         await self.request("query/push/", data)
 
     def sync_set_heater_temp(self, id_device, set_temp):
-
-        #calculateCelius(25.5)
         loop = asyncio.get_event_loop()
         task = loop.create_task(self.set_heater_temp(id_device, set_temp))
         loop.run_until_complete(task)
 
+    async def throttle_update_heaters(self):
+        """Throttle update device."""
+        if (self._throttle_time is not None
+                and dt.datetime.now() - self._throttle_time < MIN_TIME_BETWEEN_UPDATES):
+            return
+        self._throttle_time = dt.datetime.now()
+        await self.update_heaters()
+
+    async def throttle_update_all_heaters(self):
+        """Throttle update all devices and rooms."""
+        if (self._throttle_all_time is not None
+                and dt.datetime.now() - self._throttle_all_time
+                < MIN_TIME_BETWEEN_UPDATES):
+            return
+        self._throttle_all_time = dt.datetime.now()
+        await self.find_all_heaters()
+
+    async def update_device(self, id_device):
+        """Update device."""
+        await self.throttle_update_heaters()
+        return self.heaters.get(id_device)
+
+    async def find_all_heaters(self):
+        """Find all heaters."""
+        await self.update_heaters()
+
 async def set_heater_values(heater_data, heater):
     """Set heater values from heater data"""
-    heater.current_temp = heater_data.get('current_temp')
+    heater.current_temp = heater_data.get('temperature_air')
     heater.heating_up = heater_data.get('heating_up')
     heater.consigne_confort = heater_data.get('consigne_confort') #Set Value
     heater.consigne_hg = heater_data.get('consigne_hg')
@@ -240,9 +265,8 @@ async def set_heater_values(heater_data, heater):
     heater.date_start_boost = heater_data.get('date_start_boost')
     heater.time_boost = heater_data.get('time_boost')
     heater.nv_mode = heater_data.get('nv_mode')
-    heater.temperature_air = heater_data.get('temperature_air')
     heater.temperature_sol = heater_data.get('temperature_sol')
-    heater.on_off = heater_data.get('on_off')
+    heater.on_off = heater_data.get('on_off') == 0
     heater.pourcent_light = heater_data.get('pourcent_light')
     heater.status_com = heater_data.get('status_com')
     heater.recep_status_global = heater_data.get('recep_status_global')

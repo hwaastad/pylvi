@@ -11,7 +11,7 @@ with open("README.md", 'r') as fp:
 setup(
     name = 'lviheater',
     packages = find_packages(exclude=['tests']),
-    install_requires=['aiohttp>=3.0.6','numpy'],
+    install_requires=['aiohttp>=3.0.6'],
     version='0.1.0',
     description='A python3 library to communicate with LVI',
     long_description=long_description,
