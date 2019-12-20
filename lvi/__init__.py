@@ -163,7 +163,6 @@ class Lvi:
             _LOGGER.error('Authentication failed')
             return False
 
-        _LOGGER.info(data)
         return data
 
     def sync_request(self, command, payload, retry=2):
@@ -189,11 +188,12 @@ class Lvi:
         data = await self.request('/smarthome/read/',data)
         heater_data = data.get('data').get('devices')
         for _key in heater_data:
-            _id = heater_data[_key].get('id')
+            _id = heater_data[_key].get('id_device')
             heater = self.heaters.get(_id,Heater())
-            heater.id_device = heater_data[_key].get('id_device')
+            heater.id_device = _id
             await set_heater_values(heater_data[_key],heater)
             self.heaters[_id] = heater
+            _LOGGER.error(heater)
 
     def sync_update_heaters(self):
         """Request data."""
@@ -240,6 +240,7 @@ class Lvi:
 
     async def update_device(self, id_device):
         """Update device."""
+        _LOGGER.info('Updating device: ' + id_device)
         await self.throttle_update_heaters()
         return self.heaters.get(id_device)
 
@@ -247,10 +248,16 @@ class Lvi:
         """Find all heaters."""
         await self.update_heaters()
 
+    async def heater_control(self,id_device,fan_status=None,power_status=None):
+        """Set heater temps."""
+
+    def sync_heater_control(self, device_id, fan_status=None,
+                            power_status=None):
+        """Set heater temps."""
+
 async def set_heater_values(heater_data, heater):
     """Set heater values from heater data"""
     heater.current_temp = adcToCelsius(heater_data.get('temperature_air'))
-    heater.heating_up = heater_data.get('heating_up')
     heater.consigne_confort = adcToCelsius(heater_data.get('consigne_confort')) #Set Value
     heater.consigne_hg = adcToCelsius(heater_data.get('consigne_hg'))
     heater.consigne_boost = adcToCelsius(heater_data.get('consigne_boost'))
@@ -266,7 +273,7 @@ async def set_heater_values(heater_data, heater):
     heater.time_boost = heater_data.get('time_boost')
     heater.nv_mode = heater_data.get('nv_mode')
     heater.temperature_sol = adcToCelsius(heater_data.get('temperature_sol'))
-    heater.on_off = heater_data.get('on_off') == 0
+    heater.power_status = 1 if heater_data.get('consigne_manuel') != '0' and heater_data.get('nv_mode') != '0' else 1
     heater.pourcent_light = heater_data.get('pourcent_light')
     heater.status_com = heater_data.get('status_com')
     heater.recep_status_global = heater_data.get('recep_status_global')
@@ -279,6 +286,7 @@ async def set_heater_values(heater_data, heater):
     heater.heating_up = heater_data.get('heating_up')
     heater.heat_cool = heater_data.get('heat_cool')
     heater.fan_speed = heater_data.get('fan_speed')
+    heater.available = '1'
 
 def celsiusToAdc(celsius):
     return int(410 + (celsius - 5)*18)
@@ -331,7 +339,7 @@ class Heater:
     nv_mode = None
     temperature_air = None
     temperature_sol = None
-    on_off = None
+    power_status = None
     pourcent_light = None
     status_com = None
     recep_status_global = None
@@ -343,6 +351,8 @@ class Heater:
     heating_up = None
     heat_cool = None
     fan_speed = None
+    room = None
+    available = True
 
     def __repr__(self):
         items = ("%s=%r" % (k, v) for k, v in self.__dict__.items())
