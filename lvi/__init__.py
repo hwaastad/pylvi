@@ -8,6 +8,7 @@ import logging
 import random
 import string
 import time
+import datetime
 
 import aiohttp
 import async_timeout
@@ -122,10 +123,10 @@ class Lvi:
             return None
 
         # Check self.token_expire and if date > expire, do:
-        # if token has expired:
-        #   if not await self.connect():
-        #       return None
-        #   return self.request(command, formData, retry - 1)
+        if datetime.datetime.strptime(self._token_expire,"%Y-%m-%d %H:%M:%S") <= datetime.datetime.now():
+            if not await self.connect():
+                return None
+            return self.request(command, formData, retry - 1)
 
         url = API_ENDPOINT_1 + command
 
@@ -204,10 +205,9 @@ class Lvi:
         data = aiohttp.FormData()
         data.add_field('query[id_device]',id_device)
         data.add_field('context','1')
-        _adc = calculateCelius(set_temp)
+        _adc = celsiusToAdc(set_temp)
         for key in self.heaters:
             if self.heaters[key].id_device == id_device:
-                _LOGGER.error('Found')
                 data.add_field('query[consigne_confort]',_adc)
                 data.add_field('query[consigne_manuel]', _adc)
                 # Add gv_mode 0 for manual set
@@ -249,15 +249,15 @@ class Lvi:
 
 async def set_heater_values(heater_data, heater):
     """Set heater values from heater data"""
-    heater.current_temp = heater_data.get('temperature_air')
+    heater.current_temp = adcToCelsius(heater_data.get('temperature_air'))
     heater.heating_up = heater_data.get('heating_up')
-    heater.consigne_confort = heater_data.get('consigne_confort') #Set Value
-    heater.consigne_hg = heater_data.get('consigne_hg')
-    heater.consigne_boost = heater_data.get('consigne_boost')
-    heater.consigne_eco = heater_data.get('consigne_eco')
-    heater.consigne_manuel = heater_data.get('consigne_manuel') #Set value
-    heater.min_set_point = heater_data.get('min_set_point')
-    heater.max_set_point = heater_data.get('max_set_point')
+    heater.consigne_confort = adcToCelsius(heater_data.get('consigne_confort')) #Set Value
+    heater.consigne_hg = adcToCelsius(heater_data.get('consigne_hg'))
+    heater.consigne_boost = adcToCelsius(heater_data.get('consigne_boost'))
+    heater.consigne_eco = adcToCelsius(heater_data.get('consigne_eco'))
+    heater.consigne_manuel = adcToCelsius(heater_data.get('consigne_manuel')) #Set value
+    heater.min_set_point = adcToCelsius(heater_data.get('min_set_point'))
+    heater.max_set_point = adcToCelsius(heater_data.get('max_set_point'))
 
     heater.nom_appareil = heater_data.get('nom_appareil')
     heater.num_zone = heater_data.get('num_zone')
@@ -265,7 +265,7 @@ async def set_heater_values(heater_data, heater):
     heater.date_start_boost = heater_data.get('date_start_boost')
     heater.time_boost = heater_data.get('time_boost')
     heater.nv_mode = heater_data.get('nv_mode')
-    heater.temperature_sol = heater_data.get('temperature_sol')
+    heater.temperature_sol = adcToCelsius(heater_data.get('temperature_sol'))
     heater.on_off = heater_data.get('on_off') == 0
     heater.pourcent_light = heater_data.get('pourcent_light')
     heater.status_com = heater_data.get('status_com')
@@ -280,10 +280,11 @@ async def set_heater_values(heater_data, heater):
     heater.heat_cool = heater_data.get('heat_cool')
     heater.fan_speed = heater_data.get('fan_speed')
 
-def calculateCelius(deg):
-    _adc = int(410 + (deg - 5)*18)
-    _LOGGER.error('deg celcius is: ' + str(deg) + ' Sensor: ' + str(_adc))
-    return _adc
+def celsiusToAdc(celsius):
+    return int(410 + (celsius - 5)*18)
+
+def adcToCelsius(adc):
+    return int((int(adc)-410)/18 + 5)
 
 class SmartHome:
     smarthome_id = None
