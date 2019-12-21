@@ -208,7 +208,6 @@ class Lvi:
         return loop.run_until_complete(task)
 
     async def update_heaters(self):
-        _LOGGER.info('Updating heaters')
         smarthome = await self.get_smarthome_list()
         # Fetch devices
         data = aiohttp.FormData()
@@ -279,7 +278,6 @@ class Lvi:
 
     async def update_device(self, id_device):
         """Update device."""
-        _LOGGER.info('Updating device: ' + id_device)
         await self.throttle_update_heaters()
         return self.heaters.get(id_device)
 
