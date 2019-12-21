@@ -1,10 +1,10 @@
-# pylvi [![Build Status](https://travis-ci.org/Danielhiversen/pymill.svg?branch=master)](https://travis-ci.org/Danielhiversen/pymill)
+# pylvi
 
 Python3 library for LVI heater. The library uses the app API.
 
-Based on https://pastebin.com/53Nk0wJA and Postman capturing from the app.
+Based on the brilliant work done by DanielHiversen and pymill (https://github.com/Danielhiversen/pymill)
 
-~~All requests are send unencrypted from the app :(~~ https://blog.roysolberg.com/2019/01/mill-heat
+~~All requests are send encrypted from the app 
 
 Control LVI heaters and get measured temperatures.
 
