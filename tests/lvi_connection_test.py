@@ -16,7 +16,7 @@ class TestConnection(TestCase):
         lvi_connection = Lvi('xxx','xxx')
         lvi_connection.sync_connect()
 
-
+        lvi_connection.sync_update_rooms()
         lvi_connection.sync_update_heaters()
        # lvi_connection.update_device('C001-000')
        # heater = next(iter(lvi_connection.heaters.values()))
