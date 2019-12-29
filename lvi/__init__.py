@@ -259,6 +259,57 @@ class Lvi:
         task = loop.create_task(self.set_heater_temp(id_device, set_temp))
         loop.run_until_complete(task)
 
+    async def set_heater_preset(self,id_device,preset):
+        """Update preset."""
+        data = aiohttp.FormData()
+        data.add_field('query[id_device]',id_device)
+        data.add_field('context','1')
+        data.add_field('smarthome_id', self.heaters[id_device].smarthome_id)
+        if preset == 'comfort':
+            self.heaters[id_device].gv_mode=0
+            data.add_field('query[gv_mode]', 0)
+            data.add_field('query[nv_mode]', 0)
+            data.add_field('query[consigne_confort]', celsiusToAdc(self.heaters[id_device].consigne_confort))
+            data.add_field('query[consigne_manuel]', celsiusToAdc(self.heaters[id_device].consigne_manuel))
+        elif preset == 'Program':
+            _LOGGER.error('setting program attributes....')
+            self.heaters[id_device].gv_mode=8
+            data.add_field('query[gv_mode]', 8)
+            data.add_field('query[nv_mode]', 8)
+            data.add_field('query[consigne_manuel]', celsiusToAdc(self.heaters[id_device].consigne_manuel))
+        elif preset == 'eco':
+            self.heaters[id_device].gv_mode=3
+            data.add_field('query[gv_mode]', 3)
+            data.add_field('query[nv_mode]', 3)
+            data.add_field('query[consigne_eco]', celsiusToAdc(self.heaters[id_device].consigne_eco))
+            data.add_field('query[consigne_manuel]', celsiusToAdc(self.heaters[id_device].consigne_manuel))
+        elif preset == 'boost':
+            self.heaters[id_device].gv_mode=4
+            data.add_field('query[gv_mode]', 4)
+            data.add_field('query[nv_mode]', 4)
+            data.add_field('query[time_boost]', 7200)
+            data.add_field('query[consigne_boost]', celsiusToAdc(self.heaters[id_device].consigne_boost))
+            data.add_field('query[consigne_manuel]', celsiusToAdc(self.heaters[id_device].consigne_manuel))
+        elif preset == 'off':
+            self.heaters[id_device].gv_mode=1
+            data.add_field('query[gv_mode]', 1)
+            data.add_field('query[nv_mode]', 1)
+            data.add_field('query[consigne_manuel]', 0)
+        else:
+            self.heaters[id_device].gv_mode=2
+            data.add_field('query[gv_mode]', 2)
+            data.add_field('query[nv_mode]', 2)
+            data.add_field('query[consigne_manuel]', celsiusToAdc(self.heaters[id_device].consigne_manuel))
+            data.add_field('query[consigne_hg]', celsiusToAdc(self.heaters[id_device].consigne_hg))
+
+        await self.request("query/push/", data)
+        
+
+    def sync_set_heater_preset(self,id_device,preset):
+        loop = asyncio.get_event_loop()
+        task = loop.create_task(self.set_heater_preset(id_device, preset))
+        loop.run_until_complete(task)
+
     async def throttle_update_heaters(self):
         """Throttle update device."""
         if (self._throttle_time is not None
@@ -337,13 +388,13 @@ async def set_heater_values(self,heater_data, heater):
     heater.date_start_boost = heater_data.get('date_start_boost')
     heater.time_boost = heater_data.get('time_boost')
     heater.nv_mode = heater_data.get('nv_mode')
+    heater.gv_mode = heater_data.get('gv_mode')
     heater.temperature_sol = adcToCelsius(heater_data.get('temperature_sol'))
     heater.power_status = 0 if heater_data.get('consigne_manuel') == '0' and heater_data.get('nv_mode') == '0' and heater_data.get('gv_mode') == '1' else 1
     heater.pourcent_light = heater_data.get('pourcent_light')
     heater.status_com = heater_data.get('status_com')
     heater.recep_status_global = heater_data.get('recep_status_global')
 
-    heater.gv_mode = heater_data.get('gv_mode')
     heater.puissance_app = heater_data.get('puissance_app')
     heater.smarthome_id = heater_data.get('smarthome_id')
     heater.bundle_id = heater_data.get('bundle_id')
@@ -361,7 +412,10 @@ def celsiusToAdc(celsius):
     return int(410 + (celsius - 5)*18)
 
 def adcToCelsius(adc):
-    return int((int(adc)-410)/18 + 5)
+    if int(adc) < 410:
+        return int(adc)
+    else:
+        return int((int(adc)-410)/18 + 5)
 
 class SmartHome:
     smarthome_id = None
