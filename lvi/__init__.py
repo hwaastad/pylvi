@@ -22,6 +22,7 @@ REQUEST_TIMEOUT = '300'
 
 _LOGGER = logging.getLogger(__name__)
 
+
 class Lvi:
     """Class to comunicate with the Mill api."""
 
@@ -42,12 +43,12 @@ class Lvi:
         self._password = password
         self._user_id = None
         self._token = None
-        self._token_expire=None
+        self._token_expire = None
         self.rooms = {}
         self.heaters = {}
         self._throttle_time = None
         self._throttle_all_time = None
-    
+
     async def connect(self, retry=2):
         """Connect to LVI."""
         # pylint: disable=too-many-return-statements
@@ -55,10 +56,11 @@ class Lvi:
             "Content-Type": "application/x-www-form-urlencoded",
             "Connection": "Keep-Alive",
         }
-        
+
         formData = aiohttp.FormData()
         formData.add_field('email', self._username)
-        formData.add_field('password', hashlib.md5(self._password.encode('utf-8')).hexdigest())
+        formData.add_field('password', hashlib.md5(
+            self._password.encode('utf-8')).hexdigest())
 
         try:
             with async_timeout.timeout(self._timeout):
@@ -123,7 +125,7 @@ class Lvi:
             return None
 
         # Check self.token_expire and if date > expire, do:
-        if datetime.datetime.strptime(self._token_expire,"%Y-%m-%d %H:%M:%S") <= datetime.datetime.now():
+        if datetime.datetime.strptime(self._token_expire, "%Y-%m-%d %H:%M:%S") <= datetime.datetime.now():
             if not await self.connect():
                 return None
             return self.request(command, formData, retry - 1)
@@ -131,7 +133,7 @@ class Lvi:
         url = API_ENDPOINT_1 + command
 
         formData.add_field('token', self._token)
-        formData.add_field('email',self._username)
+        formData.add_field('email', self._username)
 
         headers = {
             "Content-Type": "application/x-www-form-urlencoded",
@@ -148,7 +150,8 @@ class Lvi:
                 return None
             return await self.request(command, formData, retry - 1)
         except aiohttp.ClientError:
-            _LOGGER.error("Error sending command to LVI: %s", command, exc_info=True)
+            _LOGGER.error("Error sending command to LVI: %s",
+                          command, exc_info=True)
             return None
 
         result = await resp.text()
@@ -159,7 +162,7 @@ class Lvi:
         data = json.loads(result)
        # _LOGGER.error(result)
 
-        if data.get('code').get('code') != '1' and  data.get('code').get('code') != '8' :
+        if data.get('code').get('code') != '1' and data.get('code').get('code') != '8':
             _LOGGER.error('Authentication failed')
             return False
 
@@ -185,7 +188,7 @@ class Lvi:
         homes = await self.get_smarthome_list()
         # Fetch zones
         data = aiohttp.FormData()
-        data.add_field('smarthome_id',homes.get('0').get('smarthome_id'))
+        data.add_field('smarthome_id', homes.get('0').get('smarthome_id'))
         data = await self.request('/smarthome/read/', data)
         zone_data = data.get('data').get('zones')
         for key in zone_data:
@@ -211,21 +214,21 @@ class Lvi:
         smarthome = await self.get_smarthome_list()
         # Fetch devices
         data = aiohttp.FormData()
-        data.add_field('smarthome_id',smarthome.get('0').get('smarthome_id'))
+        data.add_field('smarthome_id', smarthome.get('0').get('smarthome_id'))
         data = await self.request('/smarthome/read/', data)
         heater_data = data.get('data').get('devices')
 
         _data = aiohttp.FormData()
-        _data.add_field('smarthome_id',smarthome.get('0').get('smarthome_id'))
-        _data.add_field('type_id','1')
+        _data.add_field('smarthome_id', smarthome.get('0').get('smarthome_id'))
+        _data.add_field('type_id', '1')
         errors = await self.request("/smarthome/get_errors/", _data)
         errors_data = errors.get('data').get('results').get('by_device')
 
         for _key in heater_data:
             _id = heater_data[_key].get('id_device')
-            heater = self.heaters.get(_id,Heater())
-            heater.id_device = _id
-            await set_heater_values(self,heater_data[_key],heater)
+            heater = self.heaters.get(_id, Heater())
+            heater.device_id = _id
+            await set_heater_values(self, heater_data[_key], heater)
             if _id in errors_data:
                 heater.available = False
             else:
@@ -239,14 +242,14 @@ class Lvi:
         task = loop.create_task(self.update_heaters())
         loop.run_until_complete(task)
 
-    async def set_heater_temp(self, id_device, set_temp):
+    async def set_heater_temp(self, device_id, set_temp):
         data = aiohttp.FormData()
-        data.add_field('query[id_device]',id_device)
-        data.add_field('context','1')
+        data.add_field('query[id_device]', device_id)
+        data.add_field('context', '1')
         _adc = celsiusToAdc(set_temp)
         for key in self.heaters:
-            if self.heaters[key].id_device == id_device:
-                data.add_field('query[consigne_confort]',_adc)
+            if self.heaters[key].device_id == device_id:
+                data.add_field('query[consigne_confort]', _adc)
                 data.add_field('query[consigne_manuel]', _adc)
                 # Add gv_mode 0 for manual set
                 data.add_field('smarthome_id', self.heaters[key].smarthome_id)
@@ -254,60 +257,68 @@ class Lvi:
 
         await self.request("query/push/", data)
 
-    def sync_set_heater_temp(self, id_device, set_temp):
+    def sync_set_heater_temp(self, device_id, set_temp):
         loop = asyncio.get_event_loop()
-        task = loop.create_task(self.set_heater_temp(id_device, set_temp))
+        task = loop.create_task(self.set_heater_temp(device_id, set_temp))
         loop.run_until_complete(task)
 
-    async def set_heater_preset(self,id_device,preset):
+    async def set_heater_preset(self, device_id, preset):
         """Update preset."""
         data = aiohttp.FormData()
-        data.add_field('query[id_device]',id_device)
-        data.add_field('context','1')
-        data.add_field('smarthome_id', self.heaters[id_device].smarthome_id)
+        data.add_field('query[id_device]', device_id)
+        data.add_field('context', '1')
+        data.add_field('smarthome_id', self.heaters[device_id].smarthome_id)
         if preset == 'comfort':
-            self.heaters[id_device].gv_mode=0
+            self.heaters[device_id].gv_mode = 0
             data.add_field('query[gv_mode]', 0)
             data.add_field('query[nv_mode]', 0)
-            data.add_field('query[consigne_confort]', celsiusToAdc(self.heaters[id_device].consigne_confort))
-            data.add_field('query[consigne_manuel]', celsiusToAdc(self.heaters[id_device].consigne_manuel))
+            data.add_field('query[consigne_confort]', celsiusToAdc(
+                self.heaters[device_id].consigne_confort))
+            data.add_field('query[consigne_manuel]', celsiusToAdc(
+                self.heaters[device_id].consigne_manuel))
         elif preset == 'Program':
             _LOGGER.error('setting program attributes....')
-            self.heaters[id_device].gv_mode=8
+            self.heaters[device_id].gv_mode = 8
             data.add_field('query[gv_mode]', 8)
             data.add_field('query[nv_mode]', 8)
-            data.add_field('query[consigne_manuel]', celsiusToAdc(self.heaters[id_device].consigne_manuel))
+            data.add_field('query[consigne_manuel]', celsiusToAdc(
+                self.heaters[device_id].consigne_manuel))
         elif preset == 'eco':
-            self.heaters[id_device].gv_mode=3
+            self.heaters[device_id].gv_mode = 3
             data.add_field('query[gv_mode]', 3)
             data.add_field('query[nv_mode]', 3)
-            data.add_field('query[consigne_eco]', celsiusToAdc(self.heaters[id_device].consigne_eco))
-            data.add_field('query[consigne_manuel]', celsiusToAdc(self.heaters[id_device].consigne_manuel))
+            data.add_field('query[consigne_eco]', celsiusToAdc(
+                self.heaters[device_id].consigne_eco))
+            data.add_field('query[consigne_manuel]', celsiusToAdc(
+                self.heaters[device_id].consigne_manuel))
         elif preset == 'boost':
-            self.heaters[id_device].gv_mode=4
+            self.heaters[device_id].gv_mode = 4
             data.add_field('query[gv_mode]', 4)
             data.add_field('query[nv_mode]', 4)
             data.add_field('query[time_boost]', 7200)
-            data.add_field('query[consigne_boost]', celsiusToAdc(self.heaters[id_device].consigne_boost))
-            data.add_field('query[consigne_manuel]', celsiusToAdc(self.heaters[id_device].consigne_manuel))
+            data.add_field('query[consigne_boost]', celsiusToAdc(
+                self.heaters[device_id].consigne_boost))
+            data.add_field('query[consigne_manuel]', celsiusToAdc(
+                self.heaters[device_id].consigne_manuel))
         elif preset == 'off':
-            self.heaters[id_device].gv_mode=1
+            self.heaters[device_id].gv_mode = 1
             data.add_field('query[gv_mode]', 1)
             data.add_field('query[nv_mode]', 1)
             data.add_field('query[consigne_manuel]', 0)
         else:
-            self.heaters[id_device].gv_mode=2
+            self.heaters[device_id].gv_mode = 2
             data.add_field('query[gv_mode]', 2)
             data.add_field('query[nv_mode]', 2)
-            data.add_field('query[consigne_manuel]', celsiusToAdc(self.heaters[id_device].consigne_manuel))
-            data.add_field('query[consigne_hg]', celsiusToAdc(self.heaters[id_device].consigne_hg))
+            data.add_field('query[consigne_manuel]', celsiusToAdc(
+                self.heaters[device_id].consigne_manuel))
+            data.add_field('query[consigne_hg]', celsiusToAdc(
+                self.heaters[device_id].consigne_hg))
 
         await self.request("query/push/", data)
-        
 
-    def sync_set_heater_preset(self,id_device,preset):
+    def sync_set_heater_preset(self, device_id, preset):
         loop = asyncio.get_event_loop()
-        task = loop.create_task(self.set_heater_preset(id_device, preset))
+        task = loop.create_task(self.set_heater_preset(device_id, preset))
         loop.run_until_complete(task)
 
     async def throttle_update_heaters(self):
@@ -327,20 +338,21 @@ class Lvi:
         self._throttle_all_time = dt.datetime.now()
         await self.find_all_heaters()
 
-    async def update_device(self, id_device):
+    async def update_device(self, device_id):
         """Update device."""
         await self.throttle_update_heaters()
-        return self.heaters.get(id_device)
+        return self.heaters.get(device_id)
 
     async def find_all_heaters(self):
         """Find all heaters."""
         await self.update_rooms()
         await self.update_heaters()
 
-    async def heater_control(self,id_device,fan_status=None,power_status=None):
+    async def heater_control(self, device_id, fan_status=None, power_status=None):
         """Set heater control."""
-        _LOGGER.info('Setting heater: ' + id_device + ' fan: ' + str(fan_status) + ' power_status: ' + str(power_status))
-        heater = self.heaters.get(id_device)
+        _LOGGER.info('Setting heater: ' + device_id + ' fan: ' +
+                     str(fan_status) + ' power_status: ' + str(power_status))
+        heater = self.heaters.get(device_id)
         if heater is None:
             _LOGGER.error("No such device")
             return
@@ -351,35 +363,39 @@ class Lvi:
             power_status = heater.power_status
 
         data = aiohttp.FormData()
-        data.add_field('query[id_device]',id_device)
-        data.add_field('context','1')
-        data.add_field('smarthome_id', self.heaters[id_device].smarthome_id)
+        data.add_field('query[id_device]', device_id)
+        data.add_field('context', '1')
+        data.add_field('smarthome_id', self.heaters[device_id].smarthome_id)
         if power_status == 0:
-            data.add_field('query[consigne_manuel]',0)
-            data.add_field('query[gv_mode]',1)
-            data.add_field('query[nv_mode]',1)
+            data.add_field('query[consigne_manuel]', 0)
+            data.add_field('query[gv_mode]', 1)
+            data.add_field('query[nv_mode]', 1)
         else:
-            data.add_field('query[gv_mode]',0)
-            data.add_field('query[nv_mode]',0)
+            data.add_field('query[gv_mode]', 0)
+            data.add_field('query[nv_mode]', 0)
 
         await self.request("query/push/", data)
 
-    def sync_heater_control(self, id_device, fan_status=None, power_status=None):
+    def sync_heater_control(self, device_id, fan_status=None, power_status=None):
         """Set heater control."""
-        _LOGGER.info('Setting heater: ' + id_device + ' fan: ' + str(fan_status) + ' power_status: ' + str(power_status))
+        _LOGGER.info('Setting heater: ' + device_id + ' fan: ' +
+                     str(fan_status) + ' power_status: ' + str(power_status))
         loop = asyncio.get_event_loop()
-        task = loop.create_task(self.heater_control(id_device,fan_status,power_status))
+        task = loop.create_task(self.heater_control(
+            device_id, fan_status, power_status))
         loop.run_until_complete(task)
 
 
-async def set_heater_values(self,heater_data, heater):
+async def set_heater_values(self, heater_data, heater):
     """Set heater values from heater data"""
     heater.current_temp = adcToCelsius(heater_data.get('temperature_air'))
-    heater.consigne_confort = adcToCelsius(heater_data.get('consigne_confort')) #Set Value
+    heater.consigne_confort = adcToCelsius(
+        heater_data.get('consigne_confort'))  # Set Value
     heater.consigne_hg = adcToCelsius(heater_data.get('consigne_hg'))
     heater.consigne_boost = adcToCelsius(heater_data.get('consigne_boost'))
     heater.consigne_eco = adcToCelsius(heater_data.get('consigne_eco'))
-    heater.consigne_manuel = adcToCelsius(heater_data.get('consigne_manuel')) #Set value
+    heater.consigne_manuel = adcToCelsius(
+        heater_data.get('consigne_manuel'))  # Set value
     heater.min_set_point = adcToCelsius(heater_data.get('min_set_point'))
     heater.max_set_point = adcToCelsius(heater_data.get('max_set_point'))
 
@@ -390,7 +406,8 @@ async def set_heater_values(self,heater_data, heater):
     heater.nv_mode = heater_data.get('nv_mode')
     heater.gv_mode = heater_data.get('gv_mode')
     heater.temperature_sol = adcToCelsius(heater_data.get('temperature_sol'))
-    heater.power_status = 0 if heater_data.get('consigne_manuel') == '0' and heater_data.get('nv_mode') == '0' and heater_data.get('gv_mode') == '1' else 1
+    heater.power_status = 0 if heater_data.get('consigne_manuel') == '0' and heater_data.get(
+        'nv_mode') == '0' and heater_data.get('gv_mode') == '1' else 1
     heater.pourcent_light = heater_data.get('pourcent_light')
     heater.status_com = heater_data.get('status_com')
     heater.recep_status_global = heater_data.get('recep_status_global')
@@ -411,11 +428,13 @@ async def set_heater_values(self,heater_data, heater):
 def celsiusToAdc(celsius):
     return int(410 + (celsius - 5)*18)
 
+
 def adcToCelsius(adc):
     if int(adc) < 410:
         return int(adc)
     else:
         return int((int(adc)-410)/18 + 5)
+
 
 class SmartHome:
     smarthome_id = None
@@ -424,6 +443,7 @@ class SmartHome:
     general_mode = None
     holiday_mode = None
     sync_flag = None
+
 
 class Room:
     """Representation of zone."""
@@ -436,16 +456,16 @@ class Room:
     zone_img_id = None
     address_position = None
 
-
     def __repr__(self):
         items = ("%s=%r" % (k, v) for k, v in self.__dict__.items())
         return "%s(%s)" % (self.__class__.__name__, ', '.join(items))
+
 
 class Heater:
     """Representation of heater."""
     # pylint: disable=too-few-public-methods
     id = None
-    id_device = None
+    device_id = None
     nom_appareil = None
     num_zone = None
     id_appareil = None
